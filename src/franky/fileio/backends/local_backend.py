@@ -1,6 +1,7 @@
 import os
 import os.path as osp
 import shutil
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Iterator, Optional, Tuple, Union
@@ -429,6 +430,36 @@ class LocalBackend(BaseStorageBackend):
         """
         shutil.rmtree(dir_path)
 
+    @staticmethod
+    def symlink(target, link_name, force=False):
+        '''
+        Create a symbolic link named link_name pointing to target.
+        If link_name exists then FileExistsError is raised, unless force=True.
+        '''
+
+        if not force:
+            os.symlink(target, link_name)
+            return
+
+        # os.replace() may fail if files are on different filesystems
+        link_dir = os.path.dirname(link_name)
+
+        # Create link to target with temporary filename
+        while True:
+            temp_link_name = tempfile.mktemp(dir=link_dir)
+            try:
+                os.symlink(target, temp_link_name)
+                break
+            except FileExistsError:
+                pass
+
+        try:
+            os.replace(temp_link_name, link_name)
+        except:
+            if os.path.islink(temp_link_name):
+                os.remove(temp_link_name)
+            raise
+
     def copy_if_symlink_fails(
             self,
             src: Union[str, Path],
@@ -459,7 +490,7 @@ class LocalBackend(BaseStorageBackend):
             True
         """
         try:
-            os.symlink(src, dst)
+            self.symlink(src, dst, force=True)
             return True
         except Exception:
             if self.isfile(src):

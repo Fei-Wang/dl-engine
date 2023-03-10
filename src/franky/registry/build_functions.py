@@ -114,9 +114,15 @@ def build_from_cfg(
             # If `obj_cls` inherits from `ManagerMixin`, it should be
             # instantiated by `ManagerMixin.get_instance` to ensure that it
             # can be accessed globally.
+            pretrained = args.pop('pretrained', None)
             if inspect.isclass(obj_cls) and \
                     issubclass(obj_cls, ManagerMixin):  # type: ignore
                 obj = obj_cls.get_instance(**args)  # type: ignore
+            elif pretrained is not None:
+                obj = obj_cls.from_pretrained(pretrained, **args)
+                obj._is_init = True
+            elif 'AutoModel' in obj_type:
+                obj = obj_cls.from_config(**args)
             else:
                 obj = obj_cls(**args)  # type: ignore
 

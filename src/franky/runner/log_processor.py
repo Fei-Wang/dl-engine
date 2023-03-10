@@ -18,7 +18,7 @@ class LogProcessor:
 
     ``LogProcessor`` instance is built by runner and will format
     ``runner.message_hub.log_scalars`` to ``tag`` and ``log_str``, which can
-    directly used by ``LoggerHook`` and ``OPLogger``. Besides, the argument
+    directly used by ``LoggerHook`` and ``FrankyLogger``. Besides, the argument
     ``custom_cfg`` of constructor can control the statistics method of logs.
 
     Args:

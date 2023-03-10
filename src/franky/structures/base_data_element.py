@@ -34,7 +34,7 @@ class BaseDataElement:
     Visualizer, and Evaluator components. In order to simplify the interface
     between components, we can treat them as a large data element and
     encapsulate them. Such data elements are generally called XXDataSample in
-    the OpenOPLab. Therefore, Similar to `nn.Module`, the `BaseDataElement`
+    the OpenFrankyLab. Therefore, Similar to `nn.Module`, the `BaseDataElement`
     allows `BaseDataElement` as its attribute. Such a class generally
     encapsulates all the data of a sample in the algorithm library, and its
     attributes generally are various types of data elements. For example,

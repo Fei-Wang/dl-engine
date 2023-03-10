@@ -4,7 +4,7 @@ from typing import Optional, Union
 import torch
 
 from franky.dist.utils import master_only
-from franky.logging import OPLogger, print_log
+from franky.logging import FrankyLogger, print_log
 
 
 class TimeCounter:
@@ -18,7 +18,7 @@ class TimeCounter:
         with_sync (bool): Whether to synchronize cuda. Defaults to True.
         tag (str, optional): Function tag. Used to distinguish between
             different functions or methods being called. Defaults to None.
-        logger (OPLogger, optional): Formatted logger used to record messages.
+        logger (FrankyLogger, optional): Formatted logger used to record messages.
                 Defaults to None.
 
     Examples:
@@ -46,7 +46,7 @@ class TimeCounter:
 
     log_interval: int
     warmup_interval: int
-    logger: Optional[OPLogger]
+    logger: Optional[FrankyLogger]
     __count: int
     __pure_inf_time: float
 
@@ -55,7 +55,7 @@ class TimeCounter:
                 warmup_interval: int = 1,
                 with_sync: bool = True,
                 tag: Optional[str] = None,
-                logger: Optional[OPLogger] = None):
+                logger: Optional[FrankyLogger] = None):
         assert warmup_interval >= 1
         if tag is not None and tag in cls.instance_dict:
             return cls.instance_dict[tag]

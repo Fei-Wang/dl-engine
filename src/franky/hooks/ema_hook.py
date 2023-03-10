@@ -6,6 +6,7 @@ from typing import Dict, Optional
 from franky.logging import print_log
 from franky.model import is_model_wrapper
 from franky.registry import HOOKS, MODELS
+from franky.runner import get_state_dict, weights_to_cpu
 from .hook import DATA_BATCH, Hook
 
 
@@ -150,7 +151,7 @@ class EMAHook(Hook):
         """
         self._swap_ema_parameters()
 
-    def before_save_checkpoint(self, runner, checkpoint: dict) -> None:
+    def before_save_checkpoint(self, runner, checkpoint: dict, ckpt_dir) -> None:
         """Save ema parameters to checkpoint.
 
         Args:
@@ -171,6 +172,13 @@ class EMAHook(Hook):
             runner (Runner): The runner of the testing process.
         """
         from franky.runner.checkpoint import load_state_dict
+        if 'state_dict' not in checkpoint:
+            if is_model_wrapper(runner.model):
+                model = runner.model.module
+            else:
+                model = runner.model
+
+            checkpoint['state_dict'] = weights_to_cpu(get_state_dict(model))
         if 'ema_state_dict' in checkpoint and runner._resume:
             # The original model parameters are actually saved in ema
             # field swap the weights back to resume ema state.

@@ -1,6 +1,6 @@
 from typing import Any, Iterator, List, Optional, Sequence, Union
 
-from franky.dataset import pseudo_collate
+from franky.dataset import PseudoCollate
 from franky.registry import EVALUATOR, METRICS
 from franky.structures import BaseDataElement
 from .metric import BaseMetric
@@ -24,6 +24,7 @@ class Evaluator:
                 self.metrics.append(METRICS.build(metric))
             else:
                 self.metrics.append(metric)
+        self.collate_fn = PseudoCollate()
 
     @property
     def dataset_meta(self) -> Optional[dict]:
@@ -126,7 +127,7 @@ class Evaluator:
         size = 0
         for output_chunk in get_chunks(iter(data_samples), chunk_size):
             if data is not None:
-                data_chunk = pseudo_collate(next(data))  # type: ignore
+                data_chunk = self.collate_fn(next(data))  # type: ignore
             else:
                 data_chunk = None
             size += len(output_chunk)

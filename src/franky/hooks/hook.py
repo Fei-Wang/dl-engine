@@ -12,7 +12,7 @@ class Hook:
     """
 
     priority = 'NORMAL'
-    stages = ('before_run', 'after_load_checkpoint', 'before_train',
+    stages = ('before_run', 'before_load_checkpoint', 'after_load_checkpoint', 'before_train',
               'before_train_epoch', 'before_train_iter', 'after_train_iter',
               'after_train_epoch', 'before_val', 'before_val_epoch',
               'before_val_iter', 'after_val_iter', 'after_val_epoch',
@@ -86,7 +86,7 @@ class Hook:
             runner (Runner): The runner of the testing process.
         """
 
-    def before_save_checkpoint(self, runner, checkpoint: dict) -> None:
+    def before_save_checkpoint(self, runner, checkpoint: dict, ckpt_dir) -> None:
         """All subclasses should override this method, if they need any
         operations before saving the checkpoint.
 
@@ -94,6 +94,15 @@ class Hook:
             runner (Runner): The runner of the training, validation or testing
                 process.
             checkpoint (dict): Model's checkpoint.
+        """
+
+    def before_load_checkpoint(self, runner, ckpt_dir) -> None:
+        """All subclasses should override this method, if they need any
+        operations before loading the checkpoint.
+
+        Args:
+            runner (Runner): The runner of the training, validation or testing
+                process.
         """
 
     def after_load_checkpoint(self, runner, checkpoint: dict) -> None:

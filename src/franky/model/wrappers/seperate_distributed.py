@@ -8,11 +8,10 @@ from torch.nn.parallel.distributed import DistributedDataParallel
 from franky.device import get_device
 from franky.optim import OptimWrapperDict
 from franky.registry import MODEL_WRAPPERS
-from .distributed import OPDistributedDataParallel
 
 
 @MODEL_WRAPPERS.register_module()
-class OPSeparateDistributedDataParallel(DistributedDataParallel):
+class FrankySeparateDistributedDataParallel(DistributedDataParallel):
     """A DistributedDataParallel wrapper for models.
     For example, the GAN model, usually has two submodules: generator and
     discriminator. If we wrap both of them in one standard DistributedDataParallel,

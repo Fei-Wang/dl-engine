@@ -434,3 +434,13 @@ def deprecated_function(since: str, removed_in: str, instructions: str) -> Calla
         return wrapper
 
     return decorator
+
+
+def dict_del_key_contain(obj, contain):
+    if isinstance(obj, dict):
+        for key, val in list(obj.items()):
+            if contain in key:
+                obj.pop(key)
+            else:
+                dict_del_key_contain(val, contain)
+    return obj

@@ -27,7 +27,7 @@ classifiers = [
 dynamic = ["version", "dependencies"]
 
 [project.urls]
-repository = "https://github.com/Fei-Wang/dl-engine"
+repository = "https://github.com/Fei-Wang/opengine"
 
 [tool.setuptools.dynamic]
 version = {attr = "franky.__version__"}

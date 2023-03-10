@@ -11,7 +11,7 @@ import torch
 
 from franky.config import Config
 from franky.fileio import dump
-from franky.logging import OPLogger
+from franky.logging import FrankyLogger
 from franky.registry import VISBACKENDS
 
 
@@ -39,7 +39,7 @@ def force_init_env(old_func: Callable) -> Any:
         # `_env_initialized` is False, call `_init_env` and set
         # `_env_initialized` to True
         if not getattr(obj, '_env_initialized', False):
-            logger = OPLogger.get_current_instance()
+            logger = FrankyLogger.get_current_instance()
             logger.debug('Attribute `_env_initialized` is not defined in '
                          f'{type(obj)} or `{type(obj)}._env_initialized is '
                          'False, `_init_env` will be called and '
@@ -195,7 +195,6 @@ class LocalVisBackend(BaseVisBackend):
         assert config_save_file.split('.')[-1] == 'py'
         assert scalar_save_file.split('.')[-1] == 'json'
         super().__init__(save_dir)
-        self._img_save_dir = img_save_dir
         self._config_save_file = config_save_file
         self._scalar_save_file = scalar_save_file
 
@@ -203,9 +202,6 @@ class LocalVisBackend(BaseVisBackend):
         """Init save dir."""
         if not os.path.exists(self._save_dir):
             os.makedirs(self._save_dir, exist_ok=True)
-        self._img_save_dir = osp.join(
-            self._save_dir,  # type: ignore
-            self._img_save_dir)
         self._config_save_file = osp.join(
             self._save_dir,  # type: ignore
             self._config_save_file)
@@ -337,9 +333,7 @@ class WandbVisBackend(BaseVisBackend):
             source-$PROJECT_ID-$ENTRYPOINT_RELPATH. See
             `wandb log_code <https://docs.wandb.ai/ref/python/run#log_code>`_
             for details. Defaults to None.
-            New in version 0.3.0.
         watch_kwargs (optional, dict): Agurments for ``wandb.watch``.
-            New in version 0.4.0.
     """
 
     def __init__(self,

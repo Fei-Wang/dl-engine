@@ -14,7 +14,7 @@ FSDP_WRAP_POLICIES = Registry('fsdp wrap policy')
 
 
 @MODEL_WRAPPERS.register_module()
-class OPFullyShardedDataParallel(FullyShardedDataParallel):
+class FrankyFullyShardedDataParallel(FullyShardedDataParallel):
     """A wrapper for sharding Module parameters across data parallel workers.
 
     Different from FullyShardedDataParallel, OPFullyShardedDataParallel
@@ -182,11 +182,10 @@ class OPFullyShardedDataParallel(FullyShardedDataParallel):
         """
         # enable automatic mixed precision training context.
         with optim_wrapper.optim_context(self):
-            data = self.module.data_preprocessor(data, training=True)
             if isinstance(data, dict):
-                losses = self(**data, mode='loss')
+                losses = self(**data, mode='train')
             elif isinstance(data, (list, tuple)):
-                losses = self(*data, mode='loss')
+                losses = self(*data, mode='train')
             else:
                 raise TypeError('Output of `data_preprocessor` should be '
                                 f'list tuple or dict, but got {type(data)}')
@@ -203,8 +202,9 @@ class OPFullyShardedDataParallel(FullyShardedDataParallel):
         Returns:
             List[BaseDataElement] or dict: The predictions of given data.
         """
-        inputs, data_sample = self.module.data_preprocessor(data, False)
-        return self(inputs, data_sample, mode='predict')
+        # inputs, data_sample = self.module.data_preprocessor(data, False)
+        # return self(inputs, data_sample, mode='predict')
+        return self(**data, mode='eval')
 
     def test_step(self, data: dict) -> List[BaseDataElement]:
         """Gets the predictions of module during testing process.
@@ -215,5 +215,6 @@ class OPFullyShardedDataParallel(FullyShardedDataParallel):
         Returns:
             List[BaseDataElement]: The predictions of given data.
         """
-        inputs, data_sample = self.module.data_preprocessor(data, False)
-        return self(inputs, data_sample, mode='predict')
+        # inputs, data_sample = self.module.data_preprocessor(data, False)
+        # return self(inputs, data_sample, mode='predict')
+        return self(**data, mode='pred')

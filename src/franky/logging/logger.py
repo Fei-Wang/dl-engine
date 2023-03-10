@@ -10,8 +10,8 @@ from franky.utils import ManagerMixin
 from franky.utils.manager import _accquire_lock, _release_lock
 
 
-class OPFormatter(logging.Formatter):
-    """Colorful format for OPLogger. If the log level is error, the logger will
+class FrankyFormatter(logging.Formatter):
+    """Colorful format for FrankyLogger. If the log level is error, the logger will
     additionally output the location of the code.
 
     Args:
@@ -90,41 +90,41 @@ class OPFormatter(logging.Formatter):
         return result
 
 
-class OPLogger(Logger, ManagerMixin):
+class FrankyLogger(Logger, ManagerMixin):
     """Formatted logger used to record messages.
 
-    ``OPLogger`` can create formatted logger to log message with different
+    ``FrankyLogger`` can create formatted logger to log message with different
     log levels and get instance in the same way as ``ManagerMixin``.
-    ``OPLogger`` has the following features:
+    ``FrankyLogger`` has the following features:
 
-    - Distributed log storage, ``OPLogger`` can choose whether to save log of
+    - Distributed log storage, ``FrankyLogger`` can choose whether to save log of
       different ranks according to `log_file`.
     - Message with different log levels will have different colors and format
       when displayed on terminal.
 
     Note:
-        - The `name` of logger and the ``instance_name`` of ``OPLogger`` could
-          be different. We can only get ``OPLogger`` instance by
-          ``OPLogger.get_instance`` but not ``logging.getLogger``. This feature
-          ensures ``OPLogger`` will not be incluenced by third-party logging
+        - The `name` of logger and the ``instance_name`` of ``FrankyLogger`` could
+          be different. We can only get ``FrankyLogger`` instance by
+          ``FrankyLogger.get_instance`` but not ``logging.getLogger``. This feature
+          ensures ``FrankyLogger`` will not be incluenced by third-party logging
           config.
-        - Different from ``logging.Logger``, ``OPLogger`` will not log warning
+        - Different from ``logging.Logger``, ``FrankyLogger`` will not log warning
           or error message without ``Handler``.
 
     Examples:
-        >>> logger = OPLogger.get_instance(name='OPLogger',
+        >>> logger = FrankyLogger.get_instance(name='FrankyLogger',
         >>>                                logger_name='Logger')
         >>> # Although logger has name attribute just like `logging.Logger`
         >>> # We cannot get logger instance by `logging.getLogger`.
         >>> assert logger.name == 'Logger'
-        >>> assert logger.instance_name = 'OPLogger'
+        >>> assert logger.instance_name = 'FrankyLogger'
         >>> assert id(logger) != id(logging.getLogger('Logger'))
         >>> # Get logger that do not store logs.
-        >>> logger1 = OPLogger.get_instance('logger1')
+        >>> logger1 = FrankyLogger.get_instance('logger1')
         >>> # Get logger only save rank0 logs.
-        >>> logger2 = OPLogger.get_instance('logger2', log_file='out.log')
+        >>> logger2 = FrankyLogger.get_instance('logger2', log_file='out.log')
         >>> # Get logger only save multiple ranks logs.
-        >>> logger3 = OPLogger.get_instance('logger3', log_file='out.log',
+        >>> logger3 = FrankyLogger.get_instance('logger3', log_file='out.log',
         >>>                                 distributed=True)
 
     Args:
@@ -159,7 +159,7 @@ class OPLogger(Logger, ManagerMixin):
         # `StreamHandler` record month, day, hour, minute, and second
         # timestamp.
         stream_handler.setFormatter(
-            OPFormatter(color=True, datefmt='%m/%d %H:%M:%S'))
+            FrankyFormatter(color=True, datefmt='%m/%d %H:%M:%S'))
         # Only rank0 `StreamHandler` will log messages below error level.
         stream_handler.setLevel(log_level) if rank == 0 else \
             stream_handler.setLevel(logging.ERROR)
@@ -188,20 +188,20 @@ class OPLogger(Logger, ManagerMixin):
                 # and second timestamp. file_handler will only record logs
                 # without color to avoid garbled code saved in files.
                 file_handler.setFormatter(
-                    OPFormatter(color=False, datefmt='%Y/%m/%d %H:%M:%S'))
+                    FrankyFormatter(color=False, datefmt='%Y/%m/%d %H:%M:%S'))
                 file_handler.setLevel(log_level)
                 self.handlers.append(file_handler)
 
     @classmethod
-    def get_current_instance(cls) -> 'OPLogger':
-        """Get latest created ``OPLogger`` instance.
+    def get_current_instance(cls) -> 'FrankyLogger':
+        """Get latest created ``FrankyLogger`` instance.
 
-        :obj:`OPLogger` can call :meth:`get_current_instance` before any
+        :obj:`FrankyLogger` can call :meth:`get_current_instance` before any
         instance has been created, and return a logger with the instance name
         "franky".
 
         Returns:
-            OPLogger: Configured logger instance.
+            FrankyLogger: Configured logger instance.
         """
         if not cls._instance_dict:
             cls.get_instance('franky')
@@ -228,16 +228,16 @@ class OPLogger(Logger, ManagerMixin):
 
         If ``logging.Logger.selLevel`` is called, all ``logging.Logger``
         instances managed by ``logging.Manager`` will clear the cache. Since
-        ``OPLogger`` is not managed by ``logging.Manager`` anymore,
-        ``OPLogger`` should override this method to clear caches of all
-        ``OPLogger`` instance which is managed by :obj:`ManagerMixin`.
+        ``FrankyLogger`` is not managed by ``logging.Manager`` anymore,
+        ``FrankyLogger`` should override this method to clear caches of all
+        ``FrankyLogger`` instance which is managed by :obj:`ManagerMixin`.
 
         level must be an int or a str.
         """
         self.level = logging._checkLevel(level)
         _accquire_lock()
         # The same logic as `logging.Manager._clear_cache`.
-        for logger in OPLogger._instance_dict.values():
+        for logger in FrankyLogger._instance_dict.values():
             logger._cache.clear()
         _release_lock()
 
@@ -269,18 +269,18 @@ def print_log(msg,
     elif logger == 'silent':
         pass
     elif logger == 'current':
-        logger_instance = OPLogger.get_current_instance()
+        logger_instance = FrankyLogger.get_current_instance()
         logger_instance.log(level, msg)
     elif isinstance(logger, str):
         # If the type of `logger` is `str`, but not with value of `current` or
         # `silent`, we assume it indicates the name of the logger. If the
         # corresponding logger has not been created, `print_log` will raise
         # a `ValueError`.
-        if OPLogger.check_instance_created(logger):
-            logger_instance = OPLogger.get_instance(logger)
+        if FrankyLogger.check_instance_created(logger):
+            logger_instance = FrankyLogger.get_instance(logger)
             logger_instance.log(level, msg)
         else:
-            raise ValueError(f'OPLogger: {logger} has not been created!')
+            raise ValueError(f'FrankyLogger: {logger} has not been created!')
     else:
         raise TypeError(
             '`logger` should be either a logging.Logger object, str, '

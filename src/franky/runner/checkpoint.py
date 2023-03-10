@@ -232,7 +232,7 @@ class CheckpointLoader:
 
 
 @CheckpointLoader.register_scheme(prefixes='')
-def load_from_local(filename, map_location):
+def load_from_local(filedir, map_location, filename='ckpt.pth'):
     """load checkpoint by local file path.
 
     Args:
@@ -242,7 +242,9 @@ def load_from_local(filename, map_location):
     Returns:
         dict or OrderedDict: The loaded checkpoint.
     """
+    filename = osp.join(filedir, filename)
     filename = osp.expanduser(filename)
+
     if not osp.isfile(filename):
         raise FileNotFoundError(f'{filename} can not be found.')
     checkpoint = torch.load(filename, map_location=map_location)
@@ -484,7 +486,8 @@ def get_state_dict(module, destination=None, prefix='', keep_vars=False):
 
 
 def save_checkpoint(checkpoint,
-                    filename,
+                    filedir,
+                    filename='ckpt.pth',
                     backend_args=None):
     """Save checkpoint to file.
 
@@ -494,6 +497,7 @@ def save_checkpoint(checkpoint,
         backend_args (dict, optional): Arguments to instantiate the
             preifx of uri corresponding backend. Defaults to None.
     """
+    filename = osp.join(filedir, filename)
     file_backend = get_file_backend(
         filename, backend_args=backend_args)
 
@@ -505,20 +509,13 @@ def save_checkpoint(checkpoint,
 def find_latest_checkpoint(path: str) -> Optional[str]:
     """Find the latest checkpoint from the given path.
 
-    Refer to https://github.com/facebookresearch/fvcore/blob/main/fvcore/common/checkpoint.py  # noqa: E501
-
     Args:
         path(str): The path to find checkpoints.
 
     Returns:
-        str or None: File path of the latest checkpoint.
+        str: File path of the latest checkpoint.
     """
-    save_file = osp.join(path, 'last_checkpoint')
-    last_saved: Optional[str]
-    if os.path.exists(save_file):
-        with open(save_file) as f:
-            last_saved = f.read().strip()
-    else:
-        print_log('Did not find last_checkpoint to be resumed.')
-        last_saved = None
-    return last_saved
+    save_dir = osp.join(path, 'last_checkpoint')
+    if os.path.exists(save_dir):
+        return save_dir
+    return path

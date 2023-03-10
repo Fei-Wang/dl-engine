@@ -1,23 +1,24 @@
 from abc import abstractmethod
 from collections import OrderedDict
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Mapping, Optional, Sequence, Union, Tuple
 
 import torch
 import torch.nn as nn
 
 from franky.optim import OptimWrapper
 from franky.registry import MODELS
+from franky.structures import BaseDataElement
 from franky.utils import is_list_of
-from .data_preprocessor import BaseDataPreprocessor
 from ..base_module import BaseModule
+
+CastData = Union[tuple, dict, BaseDataElement, torch.Tensor, list, bytes, str, None]
 
 
 class BaseModel(BaseModule):
     """Base class for all algorithmic models.
 
     BaseModel implements the basic functions of the algorithmic model, such as
-    weights initialize, batch inputs preprocess(see more information in
-    :class:`BaseDataPreprocessor`), parse losses, and update model parameters.
+    weights initialize, parse losses, and update model parameters.
 
     Subclasses inherit from BaseModel only need to implement the forward
     method, which implements the logic to calculate loss and predictions,
@@ -39,46 +40,35 @@ class BaseModel(BaseModule):
         >>>
         >>>         self.criterion = nn.CrossEntropyLoss()
         >>>
-        >>>     def forward(self, batch_inputs, data_samples, mode='tensor'):
+        >>>     def forward(self, batch_inputs, data_samples, mode='pred'):
         >>>         data_samples = torch.stack(data_samples)
-        >>>         if mode == 'tensor':
+        >>>         if mode == 'pred':
         >>>             return self.backbone(batch_inputs)
-        >>>         elif mode == 'predict':
+        >>>         elif mode == 'eval':
         >>>             feats = self.backbone(batch_inputs)
         >>>             predictions = torch.argmax(feats, 1)
         >>>             return predictions
-        >>>         elif mode == 'loss':
+        >>>         elif mode == 'train':
         >>>             feats = self.backbone(batch_inputs)
         >>>             loss = self.criterion(feats, data_samples)
         >>>             return dict(loss=loss)
 
     Args:
-        data_preprocessor (dict, optional): The pre-process config of
-            :class:`BaseDataPreprocessor`.
         init_cfg (dict, optional): The weight initialized config for
             :class:`BaseModule`.
 
     Attributes:
-        data_preprocessor (:obj:`BaseDataPreprocessor`): Used for
-            pre-processing data sampled by dataloader to the format accepted by
-            :meth:`forward`.
         init_cfg (dict, optional): Initialization config dict.
     """
 
     def __init__(self,
-                 data_preprocessor: Optional[Union[dict, nn.Module]] = None,
                  init_cfg: Optional[dict] = None):
         super().__init__(init_cfg)
-        if data_preprocessor is None:
-            data_preprocessor = dict(type='BaseDataPreprocessor')
-        if isinstance(data_preprocessor, nn.Module):
-            self.data_preprocessor = data_preprocessor
-        elif isinstance(data_preprocessor, dict):
-            self.data_preprocessor = MODELS.build(data_preprocessor)
-        else:
-            raise TypeError('data_preprocessor should be a `dict` or '
-                            f'`nn.Module` instance, but got '
-                            f'{type(data_preprocessor)}')
+        self._device = torch.device('cpu')
+
+    @property
+    def device(self):
+        return self._device
 
     def train_step(self, data: Union[dict, tuple, list],
                    optim_wrapper: OptimWrapper) -> Dict[str, torch.Tensor]:
@@ -91,13 +81,11 @@ class BaseModel(BaseModule):
         :class:`IterBasedTrainLoop` will call this method to update model
         parameters. The default parameter update process is as follows:
 
-        1. Calls ``self.data_processor(data, training=False)`` to collect
-           batch_inputs and corresponding data_samples(labels).
-        2. Calls ``self(batch_inputs, data_samples, mode='loss')`` to get raw
+        1. Calls ``self(batch_inputs, data_samples, mode='train')`` to get raw
            loss
-        3. Calls ``self.parse_losses`` to get ``parsed_losses`` tensor used to
+        2. Calls ``self.parse_losses`` to get ``parsed_losses`` tensor used to
            backward and dict of loss tensor used to log messages.
-        4. Calls ``optim_wrapper.update_params(loss)`` to update model.
+        3. Calls ``optim_wrapper.update_params(loss)`` to update model.
 
         Args:
             data (dict or tuple or list): Data sampled from dataset.
@@ -109,8 +97,7 @@ class BaseModel(BaseModule):
         """
         # Enable automatic mixed precision training context.
         with optim_wrapper.optim_context(self):
-            data = self.data_preprocessor(data, True)
-            losses = self._run_forward(data, mode='loss')  # type: ignore
+            losses = self._run_forward(data, mode='train')  # type: ignore
         parsed_losses, log_vars = self.parse_losses(losses)  # type: ignore
         optim_wrapper.update_params(parsed_losses)
         return log_vars
@@ -118,8 +105,7 @@ class BaseModel(BaseModule):
     def val_step(self, data: Union[tuple, dict, list]) -> list:
         """Gets the predictions of given data.
 
-        Calls ``self.data_preprocessor(data, False)`` and
-        ``self(inputs, data_sample, mode='predict')`` in order. Return the
+        Calls ``self(inputs, data_sample, mode='eval')``. Return the
         predictions which will be passed to evaluator.
 
         Args:
@@ -128,8 +114,7 @@ class BaseModel(BaseModule):
         Returns:
             list: The predictions of given data.
         """
-        data = self.data_preprocessor(data, False)
-        return self._run_forward(data, mode='predict')  # type: ignore
+        return self._run_forward(data, mode='eval')  # type: ignore
 
     def test_step(self, data: Union[dict, tuple, list]) -> list:
         """``BaseModel`` implements ``test_step`` the same as ``val_step``.
@@ -140,8 +125,7 @@ class BaseModel(BaseModule):
         Returns:
             list: The predictions of given data.
         """
-        data = self.data_preprocessor(data, False)
-        return self._run_forward(data, mode='predict')  # type: ignore
+        return self._run_forward(data, mode='pred')  # type: ignore
 
     def parse_losses(
             self, losses: Dict[str, torch.Tensor]
@@ -177,13 +161,6 @@ class BaseModel(BaseModule):
         return loss, log_vars  # type: ignore
 
     def to(self, *args, **kwargs) -> nn.Module:
-        """Overrides this method to call :meth:`BaseDataPreprocessor.to`
-        additionally.
-
-        Returns:
-            nn.Module: The model itself.
-        """
-
         # Since Torch has not officially merged
         # the npu-related fields, using the _parse_to function
         # directly will cause the NPU to not be found.
@@ -195,33 +172,22 @@ class BaseModel(BaseModule):
             kwargs['device'] = kwargs['device'].replace(
                 'npu', torch.npu.native_device)
 
-        device = torch._C._nn._parse_to(*args, **kwargs)[0]
-        if device is not None:
-            self._set_device(torch.device(device))
+        self._device = torch._C._nn._parse_to(*args, **kwargs)[0]
         return super().to(*args, **kwargs)
 
     def cuda(
             self,
             device: Optional[Union[int, str, torch.device]] = None,
     ) -> nn.Module:
-        """Overrides this method to call :meth:`BaseDataPreprocessor.cuda`
-        additionally.
-
-        Returns:
-            nn.Module: The model itself.
-        """
         if device is None or isinstance(device, int):
-            device = torch.device('cuda', index=device)
-        self._set_device(torch.device(device))
+            self._device = torch.device('cuda', index=device)
         return super().cuda(device)
 
     def npu(
             self,
             device: Union[int, str, torch.device, None] = None,
     ) -> nn.Module:
-        """Overrides this method to call :meth:`BaseDataPreprocessor.npu`
-        additionally.
-
+        """
         Returns:
             nn.Module: The model itself.
 
@@ -230,41 +196,17 @@ class BaseModel(BaseModule):
             the use of multiple cards in a single process,
             so the index here needs to be consistent with the default device
         """
-        device = torch.npu.current_device()
-        self._set_device(device)
+        self._device = torch.npu.current_device()
         return super().npu()
 
     def cpu(self, *args, **kwargs) -> nn.Module:
-        """Overrides this method to call :meth:`BaseDataPreprocessor.cpu`
-        additionally.
-
-        Returns:
-            nn.Module: The model itself.
-        """
-        self._set_device(torch.device('cpu'))
         return super().cpu()
-
-    def _set_device(self, device: torch.device) -> None:
-        """Recursively set device for `BaseDataPreprocessor` instance.
-
-        Args:
-            device (torch.device): the desired device of the parameters and
-                buffers in this module.
-        """
-
-        def apply_fn(module):
-            if not isinstance(module, BaseDataPreprocessor):
-                return
-            if device is not None:
-                module._device = device
-
-        self.apply(apply_fn)
 
     @abstractmethod
     def forward(self,
                 inputs: torch.Tensor,
                 data_samples: Optional[list] = None,
-                mode: str = 'tensor') -> Union[Dict[str, torch.Tensor], list]:
+                mode: str = 'pred') -> Union[Dict[str, torch.Tensor], list]:
         """Returns losses or predictions of training, validation, testing, and
         simple inference process.
 
@@ -288,25 +230,23 @@ class BaseModel(BaseModule):
         Args:
             inputs (torch.Tensor): batch input tensor collated by
                 :attr:`data_preprocessor`.
-            data_samples (list, optional):
-                data samples collated by :attr:`data_preprocessor`.
-            mode (str): mode should be one of ``loss``, ``predict`` and
-                ``tensor``
+            mode (str): mode should be one of ``train``, ``eval`` and
+                ``pred``
 
-                - ``loss``: Called by ``train_step`` and return loss ``dict``
+                - ``train``: Called by ``train_step`` and return loss ``dict``
                   used for logging
-                - ``predict``: Called by ``val_step`` and ``test_step``
+                - ``eval``: Called by ``val_step`` and ``test_step``
                   and return list of results used for computing metric.
-                - ``tensor``: Called by custom use to get ``Tensor`` type
+                - ``pred``: Called by custom use to get ``Tensor`` type
                   results.
 
         Returns:
             dict or list:
-                - If ``mode == loss``, return a ``dict`` of loss tensor used
+                - If ``mode == train``, return a ``dict`` of loss tensor used
                   for backward and logging.
-                - If ``mode == predict``, return a ``list`` of inference
+                - If ``mode == eval``, return a ``list`` of inference
                   results.
-                - If ``mode == tensor``, return a tensor or ``tuple`` of tensor
+                - If ``mode == pred``, return a tensor or ``tuple`` of tensor
                   or ``dict`` of tensor for custom use.
         """
 
@@ -321,6 +261,7 @@ class BaseModel(BaseModule):
         Returns:
             dict or list: Results of training or testing mode.
         """
+        data = self.cast_data(data)
         if isinstance(data, dict):
             results = self(**data, mode=mode)
         elif isinstance(data, (list, tuple)):
@@ -329,3 +270,27 @@ class BaseModel(BaseModule):
             raise TypeError('Output of `data_preprocessor` should be '
                             f'list, tuple or dict, but got {type(data)}')
         return results
+
+    def cast_data(self, data: CastData) -> CastData:
+        """Copying data to the target device.
+
+        Args:
+            data (dict): Data returned by ``DataLoader``.
+
+        Returns:
+            CollatedResult: Inputs and data sample at target device.
+        """
+        if isinstance(data, Mapping):
+            return {key: self.cast_data(data[key]) for key in data}
+        elif isinstance(data, (str, bytes)) or data is None:
+            return data
+        elif isinstance(data, tuple) and hasattr(data, '_fields'):
+            # namedtuple
+            return type(data)(
+                *(self.cast_data(sample) for sample in data))  # type: ignore  # noqa: E501  # yapf:disable
+        elif isinstance(data, Sequence):
+            return type(data)(self.cast_data(sample) for sample in data)  # type: ignore  # noqa: E501  # yapf:disable
+        elif isinstance(data, (torch.Tensor, BaseDataElement)):
+            return data.to(self.device, non_blocking=False)
+        else:
+            return data

@@ -18,10 +18,11 @@ HOOKS = Registry('hook')
 DATASETS = Registry('dataset')
 DATA_SAMPLERS = Registry('data sampler')
 TRANSFORMS = Registry('transform')
+COLLATE = Registry('collate')
 
 # mangage all kinds of modules inheriting `nn.Module`
 MODELS = Registry('model', build_model_from_cfg)
-# mangage all kinds of model wrappers like 'OPDistributedDataParallel'
+# mangage all kinds of model wrappers like 'FrankyDistributedDataParallel'
 MODEL_WRAPPERS = Registry('model_wrapper')
 # mangage all kinds of weight initialization modules like `Uniform`
 WEIGHT_INITIALIZERS = Registry('weight initializer')

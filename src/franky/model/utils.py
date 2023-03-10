@@ -82,8 +82,8 @@ def detect_anomalous_params(loss: torch.Tensor, model) -> None:
                     traverse(grad_fn)
 
     traverse(loss.grad_fn)
-    from franky.logging import OPLogger
-    logger = OPLogger.get_current_instance()
+    from franky.logging import FrankyLogger
+    logger = FrankyLogger.get_current_instance()
     for n, p in model.named_parameters():
         if p not in parameters_in_graph and p.requires_grad:
             logger.log(

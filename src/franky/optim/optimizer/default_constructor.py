@@ -1,5 +1,6 @@
 import warnings
-from typing import List, Optional, Union
+from collections import defaultdict
+from typing import Optional, Union
 
 import torch
 import torch.nn as nn
@@ -7,7 +8,6 @@ from torch.nn import GroupNorm, LayerNorm
 
 from franky.logging import print_log
 from franky.registry import OPTIM_WRAPPER_CONSTRUCTORS, OPTIM_WRAPPERS, OPTIMIZERS
-from franky.utils import is_list_of
 from franky.utils.dl_utils.torch_wrapper import _BatchNorm, _InstanceNorm
 from .optimizer_wrapper import OptimWrapper
 
@@ -150,28 +150,27 @@ class DefaultOptimWrapperConstructor:
             if self.base_wd is None:
                 raise ValueError('base_wd should not be None')
 
-    def _is_in(self, param_group: dict, param_group_list: list) -> bool:
+    def _is_in(self, param, params: dict) -> bool:
         """check whether the `param_group` is in the`param_group_list`"""
-        assert is_list_of(param_group_list, dict)
-        param = set(param_group['params'])
+        param = {param}
         param_set = set()
-        for group in param_group_list:
-            param_set.update(set(group['params']))
+        for group in params.values():
+            param_set.update(set(group))
 
         return not param.isdisjoint(param_set)
 
-    def add_params(self,
-                   params: List[dict],
-                   module: nn.Module,
-                   prefix: str = '',
-                   is_dcn_module: Optional[Union[int, float]] = None) -> None:
+    def _add_params(self,
+                    params: dict,
+                    module: nn.Module,
+                    prefix: str = '',
+                    is_dcn_module: Optional[Union[int, float]] = None) -> None:
         """Add all parameters of module to the params list.
 
         The parameters of the given module will be added to the list of param
         groups, with specific rules defined by paramwise_cfg.
 
         Args:
-            params (list[dict]): A list of param groups, it will be modified
+            params (dict): A dict of param groups, it will be modified
                 in place.
             module (nn.Module): The module to be added.
             prefix (str): The prefix of the module
@@ -200,13 +199,13 @@ class DefaultOptimWrapperConstructor:
                 and module.in_channels == module.groups)
 
         for name, param in module.named_parameters(recurse=False):
-            param_group = {'params': [param]}
-            if bypass_duplicate and self._is_in(param_group, params):
+            param_group = dict()
+            if bypass_duplicate and self._is_in(param, params):
                 warnings.warn(f'{prefix} is duplicate. It is skipped since '
                               f'bypass_duplicate={bypass_duplicate}')
                 continue
             if not param.requires_grad:
-                params.append(param_group)
+                params[frozenset(param_group.items())].append(param)
                 continue
 
             # if the parameter match one of the custom keys, ignore other rules
@@ -257,10 +256,8 @@ class DefaultOptimWrapperConstructor:
                           and flat_decay_mult is not None):
                         param_group[
                             'weight_decay'] = self.base_wd * flat_decay_mult
-            params.append(param_group)
+            params[frozenset(param_group.items())].append(param)
             for key, value in param_group.items():
-                if key == 'params':
-                    continue
                 full_name = f'{prefix}.{name}' if prefix else name
                 print_log(
                     f'paramwise_options -- {full_name}:{key}={value}',
@@ -269,11 +266,17 @@ class DefaultOptimWrapperConstructor:
         is_dcn_module = False
         for child_name, child_mod in module.named_children():
             child_prefix = f'{prefix}.{child_name}' if prefix else child_name
-            self.add_params(
+            self._add_params(
                 params,
                 child_mod,
                 prefix=child_prefix,
                 is_dcn_module=is_dcn_module)
+
+    def add_params(self, model):
+        params = defaultdict(list)
+        self._add_params(params, model)
+        params = [dict(params=v, **dict(k)) for k, v in params.items()]
+        return params
 
     def __call__(self, model: nn.Module) -> OptimWrapper:
         if hasattr(model, 'module'):
@@ -288,8 +291,7 @@ class DefaultOptimWrapperConstructor:
             optimizer = OPTIMIZERS.build(optimizer_cfg)
         else:
             # set param-wise lr and weight decay recursively
-            params: List = []
-            self.add_params(params, model)
+            params = self.add_params(model)
             optimizer_cfg['params'] = params
             optimizer = OPTIMIZERS.build(optimizer_cfg)
         optim_wrapper = OPTIM_WRAPPERS.build(

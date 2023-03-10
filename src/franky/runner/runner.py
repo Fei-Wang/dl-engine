@@ -8,7 +8,8 @@ import time
 import warnings
 from collections import OrderedDict
 from functools import partial
-from typing import Callable, Dict, List, Optional, Sequence, Union
+from typing import Callable, Dict, List
+from typing import Optional, Sequence, Union
 
 import torch
 import torch.nn as nn
@@ -18,17 +19,17 @@ from torch.utils.data import DataLoader
 
 import franky
 from franky.config import Config, ConfigDict
-from franky.dataset import COLLATE_FUNCTIONS, worker_init_fn
+from franky.dataset import worker_init_fn
 from franky.device import get_device
 from franky.dist import broadcast, get_dist_info, get_rank, init_dist, is_distributed, master_only
 from franky.evaluator import Evaluator
 from franky.fileio import join_path
 from franky.hooks import Hook
-from franky.logging import MessageHub, OPLogger, print_log
-from franky.model import OPDistributedDataParallel, convert_sync_batchnorm, is_model_wrapper, revert_sync_batchnorm
+from franky.logging import MessageHub, FrankyLogger, print_log
+from franky.model import FrankyDistributedDataParallel, convert_sync_batchnorm, is_model_wrapper, revert_sync_batchnorm
 from franky.optim import OptimWrapper, OptimWrapperDict, _ParamScheduler, build_optim_wrapper
 from franky.registry import (DATA_SAMPLERS, DATASETS, EVALUATOR, HOOKS, LOG_PROCESSORS, LOOPS, MODEL_WRAPPERS, MODELS,
-                             OPTIM_WRAPPERS, PARAM_SCHEDULERS, RUNNERS, VISUALIZERS, DefaultScope)
+                             OPTIM_WRAPPERS, PARAM_SCHEDULERS, RUNNERS, VISUALIZERS, DefaultScope, COLLATE)
 from franky.utils import digit_version, get_git_hash, is_seq_of
 from franky.utils import mkdir_or_exist
 from franky.utils.dl_utils import TORCH_VERSION, collect_env, set_multi_processing
@@ -133,11 +134,6 @@ class Runner:
         custom_hooks (list[dict] or list[Hook], optional): Hooks to execute
             custom actions like visualizing images processed by pipeline.
             Defaults to None.
-        data_preprocessor (dict, optional): The pre-process config of
-            :class:`BaseDataPreprocessor`. If the ``model`` argument is a dict
-            and doesn't contain the key ``data_preprocessor``, set the argument
-            as the ``data_preprocessor`` of the ``model`` dict.
-            Defaults to None.
         load_from (str, optional): The checkpoint file to load from.
             Defaults to None.
         resume (bool): Whether to resume training. Defaults to False. If
@@ -151,7 +147,7 @@ class Runner:
             dict(dist_cfg=dict(backend='nccl')).
         log_processor (dict, optional): A processor to format logs. Defaults to
             None.
-        log_level (int or str): The log level of OPLogger handlers.
+        log_level (int or str): The log level of FrankyLogger handlers.
             Defaults to 'INFO'.
         visualizer (Visualizer or dict, optional): A Visualizer object or a
             dict build Visualizer object. Defaults to None. If not
@@ -241,7 +237,6 @@ class Runner:
             test_evaluator: Optional[Union[Evaluator, Dict, List]] = None,
             default_hooks: Optional[Dict[str, Union[Hook, Dict]]] = None,
             custom_hooks: Optional[List[Union[Hook, Dict]]] = None,
-            data_preprocessor: Union[nn.Module, Dict, None] = None,
             load_from: Optional[str] = None,
             resume: bool = False,
             launcher: str = 'none',
@@ -348,6 +343,7 @@ class Runner:
         else:
             self._experiment_name = self.timestamp
         self._log_dir = osp.join(self.work_dir, self.timestamp)
+        self._work_dir = self._log_dir
         mkdir_or_exist(self._log_dir)
         # Used to reset registries location. See :meth:`Registry.build` for
         # more details.
@@ -384,9 +380,6 @@ class Runner:
         self._has_loaded = False
 
         # build a model
-        if isinstance(model, dict) and data_preprocessor is not None:
-            # Merge the data_preprocessor to model config.
-            model.setdefault('data_preprocessor', data_preprocessor)
         self.model = self.build_model(model)
         # wrap model
         self.model = self.wrap_model(
@@ -436,7 +429,6 @@ class Runner:
             test_evaluator=cfg.get('test_evaluator'),
             default_hooks=cfg.get('default_hooks'),
             custom_hooks=cfg.get('custom_hooks'),
-            data_preprocessor=cfg.get('data_preprocessor'),
             load_from=cfg.get('load_from'),
             resume=cfg.get('resume', False),
             launcher=cfg.get('launcher', 'none'),
@@ -682,8 +674,8 @@ class Runner:
     def build_logger(self,
                      log_level: Union[int, str] = 'INFO',
                      log_file: str = None,
-                     **kwargs) -> OPLogger:
-        """Build a global asscessable OPLogger.
+                     **kwargs) -> FrankyLogger:
+        """Build a global asscessable FrankyLogger.
 
         Args:
             log_level (int or str): The log level of OPLogger handlers.
@@ -701,7 +693,7 @@ class Runner:
         log_cfg = dict(log_level=log_level, log_file=log_file, **kwargs)
         log_cfg.setdefault('name', self._experiment_name)
 
-        return OPLogger.get_instance(**log_cfg)  # type: ignore
+        return FrankyLogger.get_instance(**log_cfg)  # type: ignore
 
     def build_message_hub(self,
                           message_hub: Optional[Dict] = None) -> MessageHub:
@@ -850,7 +842,7 @@ class Runner:
             # Sets the `find_unused_parameters` parameter in
             # torch.nn.parallel.DistributedDataParallel
             # TODO: may use a more elegant way to get local device ID.
-            model = OPDistributedDataParallel(
+            model = FrankyDistributedDataParallel(
                 module=model,
                 device_ids=[int(os.environ['LOCAL_RANK'])],
                 broadcast_buffers=False,
@@ -1383,11 +1375,8 @@ class Runner:
         # However, in franky, if `collate_fn` is not defined in
         # dataloader_cfg, `pseudo_collate` will only convert the list of
         # samples into a dict without stacking the batch tensor.
-        collate_fn_cfg = dataloader_cfg.pop('collate_fn',
-                                            dict(type='pseudo_collate'))
-        collate_fn_type = collate_fn_cfg.pop('type')
-        collate_fn = COLLATE_FUNCTIONS.get(collate_fn_type)
-        collate_fn = partial(collate_fn, **collate_fn_cfg)  # type: ignore
+        collate_cfg = dataloader_cfg.pop('collate', dict(type='PseudoCollate'))
+        collate_fn = COLLATE.build(collate_cfg)
         data_loader = DataLoader(
             dataset=dataset,
             sampler=sampler if batch_sampler is None else None,
@@ -1593,24 +1582,15 @@ class Runner:
 
     def load_or_resume(self) -> None:
         """load or resume checkpoint."""
-        if self._has_loaded:
+        if self._has_loaded or not self._load_from:
             return None
 
-        # decide to load from checkpoint or resume from checkpoint
-        resume_from = None
-        if self._resume and self._load_from is None:
-            # auto resume from the latest checkpoint
-            resume_from = find_latest_checkpoint(self.work_dir)
-            self.logger.info(
-                f'Auto resumed from the latest checkpoint {resume_from}.')
-        elif self._resume and self._load_from is not None:
-            # resume from the specified checkpoint
-            resume_from = self._load_from
+        self._load_from = find_latest_checkpoint(self._load_from)
 
-        if resume_from is not None:
-            self.resume(resume_from)
+        if self._resume:
+            self.resume(self._load_from)
             self._has_loaded = True
-        elif self._load_from is not None:
+        else:
             self.load_checkpoint(self._load_from)
             self._has_loaded = True
 
@@ -1891,14 +1871,14 @@ class Runner:
             self.register_custom_hooks(custom_hooks)
 
     def resume(self,
-               filename: str,
+               filedir: str,
                resume_optimizer: bool = True,
                resume_param_scheduler: bool = True,
                map_location: Union[str, Callable] = 'default') -> None:
         """Resume model from checkpoint.
 
         Args:
-            filename (str): Accept local filepath, URL, ``torchvision://xxx``.
+            filedir (str): Accept local filepath, URL, ``torchvision://xxx``.
             resume_optimizer (bool): Whether to resume optimizer state.
                 Defaults to True.
             resume_param_scheduler (bool): Whether to resume param scheduler
@@ -1909,10 +1889,10 @@ class Runner:
         """
         if map_location == 'default':
             device = get_device()
-            checkpoint = self.load_checkpoint(filename, map_location=device)
+            checkpoint = self.load_checkpoint(filedir, map_location=device)
         else:
             checkpoint = self.load_checkpoint(
-                filename, map_location=map_location)
+                filedir, map_location=map_location)
 
         self.train_loop._epoch = checkpoint['meta']['epoch']
         self.train_loop._iter = checkpoint['meta']['iter']
@@ -1997,14 +1977,14 @@ class Runner:
         self.logger.info(f'resumed epoch: {self.epoch}, iter: {self.iter}')
 
     def load_checkpoint(self,
-                        filename: str,
+                        filedir: str,
                         map_location: Union[str, Callable] = 'cpu',
                         strict: bool = False,
                         revise_keys: list = [(r'^module.', '')]):
-        """Load checkpoint from given ``filename``.
+        """Load checkpoint from given ``filedir``.
 
         Args:
-            filename (str): Accept local filepath, URL, ``torchvision://xxx``.
+            filedir (str): Accept local filepath, URL, ``torchvision://xxx``.
             map_location (str or callable): A string or a callable function to
                 specifying how to remap storage locations.
                 Defaults to 'cpu'.
@@ -2015,22 +1995,25 @@ class Runner:
                 pair of the regular expression operations. Defaults to strip
                 the prefix 'module.' by [(r'^module\\.', '')].
         """
-        checkpoint = _load_checkpoint(filename, map_location=map_location)
+        self.call_hook('before_load_checkpoint', ckpt_dir=filedir)
+
+        checkpoint = _load_checkpoint(filedir, map_location=map_location)
 
         # Add comments to describe the usage of `after_load_ckpt`
         self.call_hook('after_load_checkpoint', checkpoint=checkpoint)
 
-        if is_model_wrapper(self.model):
-            model = self.model.module
-        else:
-            model = self.model
+        if not self._has_loaded:
+            if is_model_wrapper(self.model):
+                model = self.model.module
+            else:
+                model = self.model
 
-        checkpoint = _load_checkpoint_to_model(
-            model, checkpoint, strict, revise_keys=revise_keys)
+            checkpoint = _load_checkpoint_to_model(
+                model, checkpoint, strict, revise_keys=revise_keys)
 
         self._has_loaded = True
 
-        self.logger.info(f'Load checkpoint from {filename}')
+        self.logger.info(f'Load checkpoint from {filedir}')
 
         return checkpoint
 
@@ -2038,7 +2021,7 @@ class Runner:
     def save_checkpoint(
             self,
             out_dir: str,
-            filename: str,
+            filedir: str,
             save_optimizer: bool = True,
             save_param_scheduler: bool = True,
             meta: dict = None,
@@ -2052,7 +2035,7 @@ class Runner:
 
         Args:
             out_dir (str): The directory that checkpoints are saved.
-            filename (str): The checkpoint filename.
+            filedir (str): The checkpoint filedir.
             save_optimizer (bool): Whether to save the optimizer to
                 the checkpoint. Defaults to True.
             save_param_scheduler (bool): Whether to save the param_scheduler
@@ -2063,7 +2046,6 @@ class Runner:
                 epochs. Defaults to True.
             backend_args (dict, optional): Arguments to instantiate the
                 preifx of uri corresponding backend. Defaults to None.
-                New in v0.2.0.
         """
         if meta is None:
             meta = {}
@@ -2080,7 +2062,7 @@ class Runner:
         else:
             meta.update(epoch=self.epoch, iter=self.iter + 1)
 
-        filepath = join_path(out_dir, filename, backend_args=backend_args)
+        filedir = join_path(out_dir, filedir, backend_args=backend_args)
 
         meta.update(
             cfg=self.cfg.pretty_text,
@@ -2134,8 +2116,8 @@ class Runner:
                     state_dict = scheduler.state_dict()  # type: ignore
                     checkpoint['param_schedulers'].append(state_dict)
 
-        self.call_hook('before_save_checkpoint', checkpoint=checkpoint)
-        save_checkpoint(checkpoint, filepath)
+        self.call_hook('before_save_checkpoint', checkpoint=checkpoint, ckpt_dir=filedir)
+        save_checkpoint(checkpoint, filedir)
 
     @master_only
     def dump_config(self) -> None:

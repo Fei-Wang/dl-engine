@@ -9,7 +9,7 @@ from typing import Iterable, List, Optional, Union
 import torch.nn as nn
 
 from franky.dist import master_only
-from franky.logging import OPLogger, print_log
+from franky.logging import FrankyLogger, print_log
 from .weight_init import initialize, update_init_info
 
 
@@ -88,11 +88,11 @@ class BaseModule(nn.Module, metaclass=ABCMeta):
             for sub_module in self.modules():
                 sub_module._params_init_info = self._params_init_info
 
-        logger = OPLogger.get_current_instance()
+        logger = FrankyLogger.get_current_instance()
         logger_name = logger.instance_name
 
         module_name = self.__class__.__name__
-        if not self._is_init:
+        if not getattr(self, '_is_init', False):
             if self.init_cfg:
                 print_log(
                     f'initialize {module_name} with init_cfg {self.init_cfg}',
@@ -106,7 +106,6 @@ class BaseModule(nn.Module, metaclass=ABCMeta):
                 # PretrainedInit has higher priority than any other init_cfg.
                 # Therefore we initialize `pretrained_cfg` last to overwrite
                 # the previous initialized weights.
-                # See details in https://github.com/open-mmlab/franky/issues/691 # noqa E501
                 other_cfgs = []
                 pretrained_cfg = []
                 for init_cfg in init_cfgs:
@@ -119,7 +118,7 @@ class BaseModule(nn.Module, metaclass=ABCMeta):
                 initialize(self, other_cfgs)
 
             for m in self.children():
-                if hasattr(m, 'init_weights'):
+                if hasattr(m, 'init_weights') and not getattr(m, '_is_init', False):
                     m.init_weights()
                     # users may overload the `init_weights`
                     update_init_info(
@@ -150,7 +149,7 @@ class BaseModule(nn.Module, metaclass=ABCMeta):
             logger_name (str): The name of logger.
         """
 
-        logger = OPLogger.get_current_instance()
+        logger = FrankyLogger.get_current_instance()
         logger_name = logger.instance_name
         with_file_handler = False
         # dump the information to the logger file if there is a `FileHandler`

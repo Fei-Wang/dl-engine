@@ -13,7 +13,7 @@ class PrepareTTAHook(Hook):
     `before_test`.
 
     Note:
-        This function will only be used with :obj:`OPFullyShardedDataParallel`.
+        This function will only be used with :obj:`FrankyFullyShardedDataParallel`.
 
     Args:
         tta_cfg (dict): Config dictionary of the test time augmentation model.
@@ -38,7 +38,7 @@ def build_runner_with_tta(cfg: dict) -> 'Runner':
     TTAModel.
 
     Note:
-        This function will only be used with :obj:`OPFullyShardedDataParallel`.
+        This function will only be used with :obj:`FrankyFullyShardedDataParallel`.
 
     Args:
         cfg (dict): cfg with ``tta_pipeline`` and ``tta_model``

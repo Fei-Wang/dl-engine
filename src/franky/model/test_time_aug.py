@@ -14,8 +14,7 @@ EnhancedBatchInputs = List[Union[torch.Tensor, List[torch.Tensor]]]
 # batch. The inner list stands for different augmentations and the outer list
 # stands for batch.
 EnhancedBatchDataSamples = List[List[BaseDataElement]]
-DATA_BATCH = Union[Dict[str, Union[EnhancedBatchInputs,
-                                   EnhancedBatchDataSamples]], tuple, dict]
+DATA_BATCH = Union[Dict[str, Union[EnhancedBatchInputs, EnhancedBatchDataSamples]], tuple, dict]
 MergedDataSamples = List[BaseDataElement]
 
 
@@ -67,28 +66,18 @@ class BaseTTAModel(BaseModel):
         :meth:`merge_preds` is an abstract method, all subclasses should
         implement it.
 
-    Warning:
-        If ``data_preprocessor`` is not None, it will overwrite the model's
-        ``data_preprocessor``.
-
     Args:
         module (dict or nn.Module): Tested model.
-        data_preprocessor (dict or :obj:`BaseDataPreprocessor`, optional):
-            If model does not define ``data_preprocessor``, it will be the
-            default value for model.
     """
 
     def __init__(
-        self,
-        module: Union[dict, nn.Module],
-        data_preprocessor: Union[dict, nn.Module, None] = None,
+            self,
+            module: Union[dict, nn.Module],
     ):
         super().__init__()
         if isinstance(module, nn.Module):
             self.module = module
         elif isinstance(module, dict):
-            if data_preprocessor is not None:
-                module['data_preprocessor'] = data_preprocessor
             self.module = MODELS.build(module)
         else:
             raise TypeError('The type of module should be a `nn.Module` '
@@ -140,7 +129,7 @@ class BaseTTAModel(BaseModel):
     def forward(self,
                 inputs: torch.Tensor,
                 data_samples: Optional[list] = None,
-                mode: str = 'tensor') -> Union[Dict[str, torch.Tensor], list]:
+                mode: str = 'pred') -> Union[Dict[str, torch.Tensor], list]:
         """``BaseTTAModel.forward`` should not be called."""
         raise NotImplementedError(
             '`BaseTTAModel.forward` will not be called during training or'

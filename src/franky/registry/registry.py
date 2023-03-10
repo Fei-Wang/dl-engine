@@ -231,7 +231,7 @@ class Registry:
             >>> from franky.registry import Registry, DefaultScope, MODELS
             >>> import time
             >>> # External Registry
-            >>> OPDET_MODELS = Registry('mmdet_model', scope='mmdet',
+            >>> FrankyDET_MODELS = Registry('mmdet_model', scope='mmdet',
             >>>     parent=MODELS)
             >>> OPCLS_MODELS = Registry('mmcls_model', scope='mmcls',
             >>>     parent=MODELS)

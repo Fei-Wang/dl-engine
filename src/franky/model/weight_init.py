@@ -117,6 +117,21 @@ def caffe2_xavier_init(module, bias=0):
         distribution='uniform')
 
 
+def basic_nlp_init(module, initializer_range=0.02):
+    """Initialize the weights."""
+    if isinstance(module, nn.Linear):
+        module.weight.data.normal_(mean=0.0, std=initializer_range)
+        if module.bias is not None:
+            module.bias.data.zero_()
+    elif isinstance(module, nn.Embedding):
+        module.weight.data.normal_(mean=0.0, std=initializer_range)
+        if module.padding_idx is not None:
+            module.weight.data[module.padding_idx].zero_()
+    elif isinstance(module, nn.LayerNorm):
+        module.bias.data.zero_()
+        module.weight.data.fill_(1.0)
+
+
 def bias_init_with_prob(prior_prob):
     """initialize conv/fc bias value according to a given probability value."""
     bias_init = float(-np.log((1 - prior_prob) / prior_prob))
@@ -460,6 +475,34 @@ class Caffe2XavierInit(KaimingInit):
         super().__call__(module)
 
 
+@WEIGHT_INITIALIZERS.register_module(name='BasicNLP')
+class BasicNLPInit(BaseInit):
+    def __init__(self,
+                 initializer_range=0.02,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.initializer_range = initializer_range
+
+    def __call__(self, module):
+
+        def init(m):
+            if self.wholemodule:
+                basic_nlp_init(m, self.initializer_range)
+            else:
+                layername = m.__class__.__name__
+                basesname = _get_bases_name(m)
+                if len(set(self.layer) & set([layername] + basesname)):
+                    basic_nlp_init(m, self.initializer_range)
+
+        module.apply(init)
+        if hasattr(module, '_params_init_info'):
+            update_init_info(module, init_info=self._get_init_info())
+
+    def _get_init_info(self):
+        info = f'{self.__class__.__name__}: initializer_range={self.initializer_range}'
+        return info
+
+
 @WEIGHT_INITIALIZERS.register_module(name='Pretrained')
 class PretrainedInit:
     """Initialize module by loading a pretrained model.
@@ -553,7 +596,7 @@ def initialize(module, init_cfg):
     Args:
         module (``torch.nn.Module``): the module will be initialized.
         init_cfg (dict | list[dict]): initialization configuration dict to
-            define initializer. OpenOPLab has implemented 6 initializers
+            define initializer. OpenFrankyLab has implemented 6 initializers
             including ``Constant``, ``Xavier``, ``Normal``, ``Uniform``,
             ``Kaiming``, and ``Pretrained``.
 

@@ -67,7 +67,7 @@ class CheckpointHook(Hook):
         less_keys (List[str], optional): Metric keys that will be
             inferred by 'less' comparison rule. If ``None``, _default_less_keys
             will be used. Defaults to None.
-        filename_tmpl (str, optional): String template to indicate checkpoint
+        filedir_tmpl (str, optional): String template to indicate checkpoint
             name. If specified, must contain one and only one "{}", which will
             be replaced with ``epoch + 1`` if ``by_epoch=True`` else
             ``iteration + 1``.
@@ -116,7 +116,7 @@ class CheckpointHook(Hook):
                  rule: Union[str, List[str], None] = None,
                  greater_keys: Optional[Sequence[str]] = None,
                  less_keys: Optional[Sequence[str]] = None,
-                 filename_tmpl: Optional[str] = None,
+                 filedir_tmpl: Optional[str] = None,
                  backend_args: Optional[dict] = None,
                  **kwargs) -> None:
         self.interval = interval
@@ -129,13 +129,13 @@ class CheckpointHook(Hook):
         self.args = kwargs
         self.backend_args = backend_args
 
-        if filename_tmpl is None:
+        if filedir_tmpl is None:
             if self.by_epoch:
-                self.filename_tmpl = 'epoch_{}.pth'
+                self.filedir_tmpl = 'epoch_{}'
             else:
-                self.filename_tmpl = 'iter_{}.pth'
+                self.filedir_tmpl = 'iter_{}'
         else:
-            self.filename_tmpl = filename_tmpl
+            self.filedir_tmpl = filedir_tmpl
 
         # save best logic
         assert (isinstance(save_best, str) or is_list_of(save_best, str)
@@ -278,13 +278,13 @@ class CheckpointHook(Hook):
             runner (Runner): The runner of the training process.
         """
         if self.by_epoch:
-            ckpt_filename = self.filename_tmpl.format(runner.epoch + 1)
+            ckpt_filedir = self.filedir_tmpl.format(runner.epoch + 1)
         else:
-            ckpt_filename = self.filename_tmpl.format(runner.iter + 1)
+            ckpt_filedir = self.filedir_tmpl.format(runner.iter + 1)
 
         runner.save_checkpoint(
             self.out_dir,
-            ckpt_filename,
+            ckpt_filedir,
             save_optimizer=self.save_optimizer,
             save_param_scheduler=self.save_param_scheduler,
             by_epoch=self.by_epoch,
@@ -298,7 +298,7 @@ class CheckpointHook(Hook):
 
         runner.message_hub.update_info(
             'last_ckpt',
-            self.file_backend.join_path(self.out_dir, ckpt_filename))
+            self.file_backend.join_path(self.out_dir, ckpt_filedir))
 
         # remove other checkpoints
         if self.max_keep_ckpts > 0:
@@ -311,7 +311,7 @@ class CheckpointHook(Hook):
                 -self.interval)
             for _step in redundant_ckpts:
                 ckpt_path = self.file_backend.join_path(
-                    self.out_dir, self.filename_tmpl.format(_step))
+                    self.out_dir, self.filedir_tmpl.format(_step))
                 if self.file_backend.isfile(ckpt_path):
                     self.file_backend.remove(ckpt_path)
                 elif self.file_backend.isdir(ckpt_path):
@@ -320,7 +320,7 @@ class CheckpointHook(Hook):
                     break
 
         save_file = osp.join(runner.work_dir, 'last_checkpoint')
-        filepath = self.file_backend.join_path(self.out_dir, ckpt_filename)
+        filepath = self.file_backend.join_path(self.out_dir, ckpt_filedir)
         # with open(save_file, 'w') as f:
         #     f.write(filepath)
         self.file_backend.copy_if_symlink_fails(filepath, save_file)
@@ -336,10 +336,10 @@ class CheckpointHook(Hook):
             return
 
         if self.by_epoch:
-            ckpt_filename = self.filename_tmpl.format(runner.epoch)
+            ckpt_filedir = self.filedir_tmpl.format(runner.epoch)
             cur_type, cur_time = 'epoch', runner.epoch
         else:
-            ckpt_filename = self.filename_tmpl.format(runner.iter)
+            ckpt_filedir = self.filedir_tmpl.format(runner.iter)
             cur_type, cur_time = 'iter', runner.iter
 
         # handle auto in self.key_indicators and self.rules before the loop
@@ -381,7 +381,7 @@ class CheckpointHook(Hook):
                     f'The previous best checkpoint {best_ckpt_path} '
                     'is removed')
 
-            best_ckpt_name = f'best_{key_indicator}_{ckpt_filename}'
+            best_ckpt_name = f'best_{key_indicator}_{ckpt_filedir}'
             if len(self.key_indicators) == 1:
                 self.best_ckpt_path = self.file_backend.join_path(  # type: ignore # noqa: E501
                     self.out_dir, best_ckpt_name)
@@ -396,7 +396,7 @@ class CheckpointHook(Hook):
                     self.best_ckpt_path_dict[key_indicator])
             runner.save_checkpoint(
                 self.out_dir,
-                filename=best_ckpt_name,
+                filedir=best_ckpt_name,
                 save_optimizer=False,
                 save_param_scheduler=False,
                 by_epoch=False,
