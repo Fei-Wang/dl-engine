@@ -299,7 +299,7 @@ def build_scheduler_from_cfg(
                         f'{scheduler_type} is not in the {registry.name} '
                         'registry. Please check whether the value of '
                         f'`{scheduler_type}` is correct or it was registered '
-                        'as expected. More details can be found at https://franky.readthedocs.io/en/latest/tutorials/config.html#import-custom-python-modules'
+                        'as expected.'
                         # noqa: E501
                     )
             elif inspect.isclass(scheduler_type):
